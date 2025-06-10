@@ -10,7 +10,7 @@ Die erfassten Werte werden an einen **MQTT-Server** übertragen und können ansc
 ## 🛠️ Benötigte Hardware
 
 - ESP D1 mini (ESP8266)
-- MAX3232 RS232-zu-TTL-Konverter (3.3V, DB9 männlich)
+- MAX3232 RS232-zu-TTL-Konverter (3.3V, DB9 männlich)  (meiner benötigt 5V)
 - Infini RS232-Adapterkabel (im Lieferumfang des Wechselrichters enthalten)
 - Micro-USB-Kabel
 - USB-Netzteil

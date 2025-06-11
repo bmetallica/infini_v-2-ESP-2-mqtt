@@ -42,8 +42,7 @@
         "y": 260,
         "wires": [
             [
-                "a4e9c618543dfc1f",
-                "8d5f68accb14e50f"
+                "a4e9c618543dfc1f"
             ]
         ]
     },
@@ -93,8 +92,7 @@
         "y": 100,
         "wires": [
             [
-                "37847c3d8f96ddef",
-                "6829590926d31d85"
+                "37847c3d8f96ddef"
             ],
             [
                 "f0069a5680d2f72c"
@@ -209,8 +207,7 @@
         "y": 220,
         "wires": [
             [
-                "c259f35328502a20",
-                "de739a61ed346812"
+                "c259f35328502a20"
             ]
         ]
     },
@@ -244,7 +241,7 @@
         "precision": "",
         "retentionPolicy": "",
         "database": "solaranzeige2",
-        "precisionV18FluxV20": "us",
+        "precisionV18FluxV20": "s",
         "retentionPolicyV18Flux": "",
         "org": "",
         "bucket": "",
@@ -286,7 +283,7 @@
         "type": "function",
         "z": "f66752a974742c78",
         "name": "Wh_Heute berechnen",
-        "func": "const lastUpdate = flow.get('lastPowerUpdate') || Date.now();\nconst currentTime = Date.now();\nconst timeDiffHours = (currentTime - lastUpdate) / 3600000; // ms to hours\n\nconst currentPower = flow.get('currentPower') || 0;\nconst whHeute = flow.get('whHeute') || 0;\n\n// Energie = Leistung * Zeit\nconst newEnergy = currentPower * timeDiffHours;\nconst updatedWhHeute = whHeute + newEnergy;\n\n// Speichere neue Werte\nflow.set('whHeute', updatedWhHeute);\nflow.set('lastPowerUpdate', currentTime);\n\n// Erstelle InfluxDB Payload\nmsg.measurement = \"Summen\";\nmsg.payload = { Wh_Heute: updatedWhHeute };\nmsg.tags = { device: \"infini2\" };\n\nreturn msg;",
+        "func": "const lastUpdate = flow.get('lastPowerUpdate');\nconst currentTime = Date.now();\n\n// Fallback für ersten Lauf\nconst timeDiffHours = lastUpdate ? (currentTime - lastUpdate) / 3600000 : 0;\n\nconst currentPower = parseFloat(flow.get('currentPower')) || 0;\nconst whHeute = parseFloat(flow.get('whHeute')) || 0;\n\nlet newEnergy = currentPower * timeDiffHours;\nif (!isFinite(newEnergy)) newEnergy = 0;\n\nconst updatedWhHeute = whHeute + newEnergy;\n\n// Speichere neue Werte\nflow.set('whHeute', updatedWhHeute);\nflow.set('lastPowerUpdate', currentTime);\n\n// Erstelle InfluxDB Payload\nmsg.measurement = \"Summen\";\nmsg.payload = { Wh_Heute: updatedWhHeute };\nmsg.tags = { device: \"infini2\" };\n\nreturn msg;\n",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -305,7 +302,7 @@
         "id": "177ed4ea93440be5",
         "type": "inject",
         "z": "f66752a974742c78",
-        "name": "Täglich um 00:00",
+        "name": "Jede Minute",
         "props": [
             {
                 "p": "payload"
@@ -315,18 +312,18 @@
                 "vt": "str"
             }
         ],
-        "repeat": "00 00 * * *",
+        "repeat": "60",
         "crontab": "",
         "once": false,
         "onceDelay": 0.1,
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 490,
-        "y": 480,
+        "x": 340,
+        "y": 540,
         "wires": [
             [
-                "072d7996dea02b8f"
+                "db62154d514cac0f"
             ]
         ]
     },
@@ -341,27 +338,11 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 790,
-        "y": 480,
+        "x": 850,
+        "y": 440,
         "wires": [
             []
         ]
-    },
-    {
-        "id": "de739a61ed346812",
-        "type": "debug",
-        "z": "f66752a974742c78",
-        "name": "debug 39",
-        "active": false,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "false",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 960,
-        "y": 300,
-        "wires": []
     },
     {
         "id": "1697f00e1abb47e8",
@@ -408,26 +389,9 @@
         "y": 360,
         "wires": [
             [
-                "f3c2edf87be50976",
                 "8b9ff3e87e62fea8"
             ]
         ]
-    },
-    {
-        "id": "f3c2edf87be50976",
-        "type": "debug",
-        "z": "f66752a974742c78",
-        "name": "debug 40",
-        "active": false,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "false",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 280,
-        "y": 460,
-        "wires": []
     },
     {
         "id": "d3724155c8f87991",
@@ -450,36 +414,24 @@
         ]
     },
     {
-        "id": "8d5f68accb14e50f",
-        "type": "debug",
+        "id": "db62154d514cac0f",
+        "type": "function",
         "z": "f66752a974742c78",
-        "name": "debug 41",
-        "active": false,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "false",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 460,
-        "y": 300,
-        "wires": []
-    },
-    {
-        "id": "6829590926d31d85",
-        "type": "debug",
-        "z": "f66752a974742c78",
-        "name": "debug 42",
-        "active": false,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "false",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 560,
-        "y": 20,
-        "wires": []
+        "name": "Nur um 0:00 Uhr weiterleiten",
+        "func": "// Hole aktuelle Uhrzeit\nconst now = new Date();\nconst hours = now.getHours();\nconst minutes = now.getMinutes();\n\n// Wenn genau 00:00 Uhr, dann Nachricht weiterleiten\nif (hours === 0 && minutes === 0) {\n    return msg;\n} else {\n    // Zu anderer Zeit nichts weitergeben\n    return null;\n}\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 580,
+        "y": 480,
+        "wires": [
+            [
+                "072d7996dea02b8f"
+            ]
+        ]
     },
     {
         "id": "ac9c3b24f8ec29a8",

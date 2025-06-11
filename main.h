@@ -1,4 +1,4 @@
-                                                                 #include <SoftwareSerial.h>
+#include <SoftwareSerial.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 
@@ -31,27 +31,27 @@ const char* befehle[] = {
 
 const int NUM_BEFEHLE = sizeof(befehle) / sizeof(befehle[0]); // <--- DIESE ZEILE HIER!
 
-// Timer-Variablen f¸r nicht-blockierende Wartezeiten
-unsigned long lastActionMillis = 0; // F¸r die Zeit zwischen Aktionen (Senden, Warten, etc.)
+// Timer-Variablen f√ºr nicht-blockierende Wartezeiten
+unsigned long lastActionMillis = 0; // F√ºr die Zeit zwischen Aktionen (Senden, Warten, etc.)
 const long commandDelayMillis = 50; // Kurze Pause nach dem Senden eines Befehls, bevor Antwort erwartet wird (kann angepasst werden)
-const long responseTimeoutMillis = 750; // Maximal 0.75 Sekunden auf Antwort warten (angepasst f¸r schnellere Abfrage)
-const long fullCycleDelayMillis = 500; // 1 Sekunde Pause nach komplettem Zyklus (angepasst f¸r schnellere Abfrage)
+const long responseTimeoutMillis = 750; // Maximal 0.75 Sekunden auf Antwort warten (angepasst f√ºr schnellere Abfrage)
+const long fullCycleDelayMillis = 500; // 1 Sekunde Pause nach komplettem Zyklus (angepasst f√ºr schnellere Abfrage)
 
 // Deklariere currentCommandIndex HIER, damit er global sichtbar ist
 int currentCommandIndex = 0;
 
-// Zustandsmaschine f¸r den Lese-/Sende-Prozess
+// Zustandsmaschine f√ºr den Lese-/Sende-Prozess
 enum AppState {
-  STATE_IDLE_START_CYCLE,       // Startzustand, wartet auf Beginn des n‰chsten Zyklus
+  STATE_IDLE_START_CYCLE,       // Startzustand, wartet auf Beginn des n√§chsten Zyklus
   STATE_SEND_COMMAND,           // Senden eines Befehls an den Inverter
   STATE_READ_RESPONSE,          // Zeichenweise die Antwort lesen
   STATE_PROCESS_DATA,           // Empfangene Daten verarbeiten und MQTT publishen
-  STATE_WAIT_BETWEEN_COMMANDS,  // Warten auf die commandDelayMillis vor dem n‰chsten Befehl
-  STATE_WAIT_FOR_NEXT_CYCLE     // Warten bis der n‰chste volle Zyklus beginnt
+  STATE_WAIT_BETWEEN_COMMANDS,  // Warten auf die commandDelayMillis vor dem n√§chsten Befehl
+  STATE_WAIT_FOR_NEXT_CYCLE     // Warten bis der n√§chste volle Zyklus beginnt
 };
 AppState currentState = STATE_IDLE_START_CYCLE;
 
-String currentResponseBuffer = ""; // Puffer f¸r die serielle Antwort
+String currentResponseBuffer = ""; // Puffer f√ºr die serielle Antwort
 unsigned long responseStartTime = 0; // Zeitstempel, wann die Antwort erwartet wurde
 
 // CRC16/XMODEM Berechnung
@@ -73,6 +73,8 @@ void setup() {
   Serial.begin(115200);
   inverterSerial.begin(2400);
 
+  randomSeed(millis());
+
   // Statische IP konfigurieren
   WiFi.config(local_IP, gateway, subnet);
   WiFi.begin(ssid, password);
@@ -92,7 +94,7 @@ void setup() {
 }
 
 void loop() {
-  // Immer als erstes in loop() ausf¸hren, um MQTT-Verbindung aktiv zu halten!
+  // Immer als erstes in loop() ausf√ºhren, um MQTT-Verbindung aktiv zu halten!
   if (!client.connected()) {
     reconnectMQTT();
   }
@@ -107,7 +109,7 @@ void loop() {
         currentCommandIndex = 0; // Sicherstellen, dass wir von vorne beginnen
         Serial.println("\nStarte neuen Abfragezyklus.");
         currentState = STATE_SEND_COMMAND;
-        lastActionMillis = currentMillis; // Timer f¸r den n‰chsten Schritt zur¸cksetzen
+        lastActionMillis = currentMillis; // Timer f√ºr den n√§chsten Schritt zur√ºcksetzen
       }
       break;
 
@@ -123,33 +125,33 @@ void loop() {
         inverterSerial.write(crc & 0xFF);
         inverterSerial.write('\r');
 
-        currentResponseBuffer = ""; // Puffer leeren f¸r neue Antwort
-        responseStartTime = currentMillis; // Startzeit f¸r Timeout setzen
-        currentState = STATE_READ_RESPONSE; // Zum Lesen der Antwort ¸bergehen
-        lastActionMillis = currentMillis; // Timer f¸r den n‰chsten Schritt zur¸cksetzen
+        currentResponseBuffer = ""; // Puffer leeren f√ºr neue Antwort
+        responseStartTime = currentMillis; // Startzeit f√ºr Timeout setzen
+        currentState = STATE_READ_RESPONSE; // Zum Lesen der Antwort √ºbergehen
+        lastActionMillis = currentMillis; // Timer f√ºr den n√§chsten Schritt zur√ºcksetzen
       } else {
         // Alle Befehle in diesem Zyklus gesendet
         currentState = STATE_WAIT_FOR_NEXT_CYCLE;
-        lastActionMillis = currentMillis; // Timer f¸r die volle Zykluspause setzen
-        Serial.println("Alle Befehle gesendet. Warte " + String(fullCycleDelayMillis / 1000) + " Sekunden f¸r den n‰chsten Zyklus...\n");
+        lastActionMillis = currentMillis; // Timer f√ºr die volle Zykluspause setzen
+        Serial.println("Alle Befehle gesendet. Warte " + String(fullCycleDelayMillis / 1000) + " Sekunden f√ºr den n√§chsten Zyklus...\n");
       }
       break;
 
     case STATE_READ_RESPONSE:
-      // Pr¸fe auf verf¸gbare serielle Daten ODER auf Timeout
+      // Pr√ºfe auf verf√ºgbare serielle Daten ODER auf Timeout
       if (inverterSerial.available()) {
         char c = inverterSerial.read();
         currentResponseBuffer += c;
         if (c == '\r') { // Antwort endet normalerweise mit '\r'
-          currentState = STATE_PROCESS_DATA; // Gehe zur Verarbeitung ¸ber
-          lastActionMillis = currentMillis; // Timer f¸r den n‰chsten Schritt zur¸cksetzen
+          currentState = STATE_PROCESS_DATA; // Gehe zur Verarbeitung √ºber
+          lastActionMillis = currentMillis; // Timer f√ºr den n√§chsten Schritt zur√ºcksetzen
           // Optional: Serial.print("Antwort (komplett): "); Serial.println(currentResponseBuffer);
         }
       } else if (currentMillis - responseStartTime > responseTimeoutMillis) {
-        Serial.println("Timeout beim Lesen der Antwort f¸r Befehl: " + String(befehle[currentCommandIndex]));
+        Serial.println("Timeout beim Lesen der Antwort f√ºr Befehl: " + String(befehle[currentCommandIndex]));
         currentResponseBuffer = ""; // Puffer leeren
         currentState = STATE_WAIT_BETWEEN_COMMANDS; // Gehe zur Pause zwischen Befehlen
-        lastActionMillis = currentMillis; // Timer f¸r den n‰chsten Schritt zur¸cksetzen
+        lastActionMillis = currentMillis; // Timer f√ºr den n√§chsten Schritt zur√ºcksetzen
       }
       break;
 
@@ -170,21 +172,21 @@ void loop() {
           else if (String(currentCmd).endsWith("MOD")) parseAndSendMOD(payload);
           else if (String(currentCmd).endsWith("FWS")) parseAndSendFWS(payload);
         } else {
-          Serial.println("Keine g¸ltige Nutzdatenantwort erkannt f¸r Befehl: " + String(befehle[currentCommandIndex]));
+          Serial.println("Keine g√ºltige Nutzdatenantwort erkannt f√ºr Befehl: " + String(befehle[currentCommandIndex]));
         }
       }
       Serial.println("-------------------------------\n");
       // Nach der Verarbeitung zum Wartezustand wechseln
       currentState = STATE_WAIT_BETWEEN_COMMANDS;
-      lastActionMillis = currentMillis; // Timer f¸r die Pause zwischen Befehlen setzen
+      lastActionMillis = currentMillis; // Timer f√ºr die Pause zwischen Befehlen setzen
       break;
 
     case STATE_WAIT_BETWEEN_COMMANDS:
-      // Warte kurz, bevor der n‰chste Befehl gesendet wird
+      // Warte kurz, bevor der n√§chste Befehl gesendet wird
       if (currentMillis - lastActionMillis >= commandDelayMillis) {
-          currentCommandIndex++; // N‰chsten Befehl vorbereiten
-          currentState = STATE_SEND_COMMAND; // Gehe zum Senden des n‰chsten Befehls
-          lastActionMillis = currentMillis; // Timer f¸r den n‰chsten Schritt zur¸cksetzen
+          currentCommandIndex++; // N√§chsten Befehl vorbereiten
+          currentState = STATE_SEND_COMMAND; // Gehe zum Senden des n√§chsten Befehls
+          lastActionMillis = currentMillis; // Timer f√ºr den n√§chsten Schritt zur√ºcksetzen
       }
       break;
 
@@ -217,10 +219,10 @@ String extractPayload(const String& raw) {
   if (start != -1 && raw.length() >= start + 5) {
     String lenStr = raw.substring(start + 2, start + 5);
     int len = lenStr.toInt();
-    // Pr¸fe, ob die L‰nge Sinn ergibt und nicht zu einem ‹berlauf f¸hrt
+    // Pr√ºfe, ob die L√§nge Sinn ergibt und nicht zu einem √úberlauf f√ºhrt
     if (len > 0 && (start + 5 + len - 1) < raw.length()) { // Korrigiert: <= zu <, da substring endIndex exklusive ist
-      return raw.substring(start + 5, start + 5 + len); // Korrigiert: endIndex muss die L‰nge des Payloads umfassen
-    } else if (len > 0 && (start + 5 + len -1) == raw.length() -1 && raw.endsWith("\r")) { // Fall f¸r das letzte Zeichen (CR)
+      return raw.substring(start + 5, start + 5 + len); // Korrigiert: endIndex muss die L√§nge des Payloads umfassen
+    } else if (len > 0 && (start + 5 + len -1) == raw.length() -1 && raw.endsWith("\r")) { // Fall f√ºr das letzte Zeichen (CR)
       return raw.substring(start + 5, start + 5 + len -1); // Ohne CR
     }
   }
@@ -228,7 +230,7 @@ String extractPayload(const String& raw) {
 }
 
 
-// HILFSFUNKTION F‹R MQTT-PUBLISH - Sendet direkt an ein Topic
+// HILFSFUNKTION F√úR MQTT-PUBLISH - Sendet direkt an ein Topic
 void publishValue(const String& field, const String& value) {
   String topic = String(mqtt_topic) + "/" + field;
   if (client.publish(topic.c_str(), value.c_str())) {
@@ -259,18 +261,18 @@ void parseAndSendGS(String payload) {
   }
 
   if (index < 26) {
-    Serial.println("Antwort unvollst‰ndig f¸r GS-Daten.");
+    Serial.println("Antwort unvollst√§ndig f√ºr GS-Daten.");
     return;
   }
 
-  // Feldnamen f¸r MQTT-Topics
+  // Feldnamen f√ºr MQTT-Topics
   const char* fieldNames[] = {
     "netzspannung", "netzfrequenz", "ac_ausgangsspannung", "ac_ausgangsfrequenz",
     "ac_scheinleistung", "ac_wirkleistung", "ausgangslast", "batteriespannung",
-    "", "",  // Platzhalter f¸r 8,9
+    "", "",  // Platzhalter f√ºr 8,9
     "batterieentladestrom", "batterieladestrom", "batteriekapazitaet", "temperatur_gehaeuse",
     "mppt1_temperatur", "mppt2_temperatur", "solarleistung1", "solarleistung2",
-    "solarspannung1", "solarspannung2", "",  // Platzhalter f¸r 20
+    "solarspannung1", "solarspannung2", "",  // Platzhalter f√ºr 20
     "ladestatus1", "ladestatus2", "batteriestromrichtung", "wr_stromrichtung", "netzstromrichtung"
   };
   // Nur relevante Felder senden
@@ -280,7 +282,7 @@ void parseAndSendGS(String payload) {
     int idx = relevantFields[i];
     if (fieldNames[idx][0] != '\0') { // Nur wenn Feldname existiert
       String value;
-      // Spezielle Formatierungen f¸r bestimmte Felder
+      // Spezielle Formatierungen f√ºr bestimmte Felder
       if (idx == 0 || idx == 1 || idx == 2 || idx == 3 || idx == 7 || idx == 10 || idx == 18 || idx == 19) {
         value = String(felder[idx].toFloat() / 10.0, 1);
       } else {
@@ -309,7 +311,7 @@ void parseAndSendT(String payload) {
     payload = payload.substring(1, payload.length() - 1);
   }
 
-  // Entferne alle nicht-numerischen Zeichen (z.†B. ESC)
+  // Entferne alle nicht-numerischen Zeichen (z. B. ESC)
   String clean = "";
   for (char c : payload) {
     if (isDigit(c)) clean += c;
@@ -324,7 +326,7 @@ void parseAndSendT(String payload) {
     publishValue("minuten", minute);
     publishValue("sekunden", sekunde);
   } else {
-    publishValue("zeit", "ung¸ltig");
+    publishValue("zeit", "ung√ºltig");
   }
 }
 
@@ -349,49 +351,52 @@ void parseAndSendMOD(String payload) {
   else if (clean == "05") readable = "Hybrid Mode";
   else readable = "Unbekannter Modus (" + clean + ")";
 
-  publishValue("mode", clean); // Verˆffentliche den Rohwert, da die Umwandlung nur zur Lesbarkeit dient
+  publishValue("mode", clean); // Ver√∂ffentliche den Rohwert, da die Umwandlung nur zur Lesbarkeit dient
 }
 
 void parseAndSendFWS(String payload) {
-  // Serial.println("\nVerarbeite FWS-Daten:"); // Optional: Reduziert Serial Output
-  // Klammern entfernen
   if (payload.startsWith("(") && payload.endsWith(")")) {
     payload = payload.substring(1, payload.length() - 1);
   }
 
-  // "k:" und andere nicht-zahlen entfernen
   int kpos = payload.indexOf("k:");
   if (kpos != -1) {
     payload = payload.substring(0, kpos);
   }
 
-  // Zerlege CSV
+  // Zerlegen
   String teile[20];
   int index = 0, last = 0;
   for (int i = 0; i < payload.length(); i++) {
     if (payload[i] == ',') {
       teile[index++] = payload.substring(last, i);
       last = i + 1;
-    }
-    // Sicherstellen, dass das Array nicht ¸berl‰uft
-    if (index >= 20) {
-        Serial.println("Warnung: 'teile' Array-Grenze erreicht in FWS-Parsing.");
-        break;
+      if (index >= 20) break;
     }
   }
-  if (index < 20) { // Nur hinzuf¸gen, wenn noch Platz ist
-      teile[index++] = payload.substring(last); // letzter Teil
-  }
+  if (index < 20) teile[index++] = payload.substring(last);
 
   // Fehlercode extrahieren
-  String fehler = (index > 0) ? teile[0] : "N/A"; // Sicherstellen, dass teile[0] existiert
+  String fehler = (index > 0) ? teile[0] : "N/A";
   publishValue("fehler", fehler);
-  // Warnungen z‰hlen (wie PHP)
-  int warnungen = 0;
-  for (int i = 1; i < index && i < 17; i++) {
+
+  // Warnungen pr√ºfen
+  int warnIndizes[15]; // Platz f√ºr 15 m√∂gliche Warnungen (1‚Äì15)
+  int warnCount = 0;
+  for (int i = 1; i < index && i <= 15; i++) {
     if (teile[i].toInt() == 1) {
-      warnungen++;
+      warnIndizes[warnCount++] = i;
     }
   }
-  publishValue("warnungen", String(warnungen));
+
+  // Warnung ausw√§hlen wie in PHP
+  String warnung = "0";
+  if (warnCount == 1) {
+    warnung = String(warnIndizes[0]);
+  } else if (warnCount > 1) {
+    int randIndex = random(warnCount);  // Achtung: vorher `randomSeed()` setzen!
+    warnung = String(warnIndizes[randIndex]);
+  }
+
+  publishValue("warnungen", warnung);
 }

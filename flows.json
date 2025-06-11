@@ -1,0 +1,31 @@
+[
+    {
+        "id": "177ed4ea93440be5",
+        "type": "inject",
+        "z": "f66752a974742c78",
+        "name": "Täglich um 00:00",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "00 00 * * *",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 490,
+        "y": 480,
+        "wires": [
+            [
+                "072d7996dea02b8f"
+            ]
+        ]
+    }
+]

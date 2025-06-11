@@ -3,7 +3,7 @@
 Dieses Projekt ermöglicht das Auslesen eines **Infini V Serien Wechselrichters** über die **RS232-Schnittstelle** mittels eines **ESP D1 mini**. 
 Die erfassten Werte werden an einen **MQTT-Server** übertragen und können anschließend z. B. mit **Node-RED** in eine Datenbank wie **Solaranzeige** ([https://solaranzeige.de](https://solaranzeige.de)) oder andere Systeme weitergeleitet werden.
 
-> ⚠️ Ein Node-RED-Flow zur Weiterleitung in die InfluxDB der Solaranzeige ist in der flows.json.
+> ⚠️ Ein Node-RED-Flow (!BETA!) zur Weiterleitung in die InfluxDB der Solaranzeige ist in der flows.json.
 
 ---
 

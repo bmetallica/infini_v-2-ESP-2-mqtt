@@ -21,8 +21,8 @@ Die erfassten Werte werden an einen **MQTT-Server** übertragen und können ansc
 
 | ESP D1 mini Pin | MAX3232 Pin |
 |------------------|--------------|
-| D1               | TX           |
-| D2               | RX           |
+| D1               | RX           |
+| D2               | TX           |
 | GND              | GND          |
 | 5V               | VCC          |
 

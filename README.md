@@ -3,7 +3,7 @@
 Dieses Projekt ermöglicht das Auslesen eines **Infini V Serien Wechselrichters** über die **RS232-Schnittstelle** mittels eines **ESP D1 mini**. 
 Die erfassten Werte werden an einen **MQTT-Server** übertragen und können anschließend z. B. mit **Node-RED** in eine Datenbank wie **Solaranzeige** ([https://solaranzeige.de](https://solaranzeige.de)) oder andere Systeme weitergeleitet werden.
 
-> ⚠️ Ein Node-RED-Flow (!BETA!) zur Weiterleitung in die InfluxDB der Solaranzeige ist in der flows.json.
+> ⚠️ Ein Node-RED-Flow (!BETA!) zur Weiterleitung in die InfluxDB der Solaranzeige ist unter NodeRed/flows.json zu finden.
 
 ---
 
@@ -30,7 +30,8 @@ Die erfassten Werte werden an einen **MQTT-Server** übertragen und können ansc
 
 ## ⚙️ Konfiguration
 
-Da die Firmware derzeit **kein Webinterface** besitzt, müssen **WLAN- und MQTT-Einstellungen direkt im Code** vorgenommen werden (z. B. `wifi_ssid`, `wifi_password`, `mqtt_server`, etc.).
+Eine zum flashen bereite firmware für den ESP-D1_mini findet Ihr unter bin-D1mini/infini_v-2-ESP-2-mqtt_V1.1.bin
+Nach dem flashen öffnet der ESP ein Wlan "InfiniConfig" damit verbinden, zur Konfiguration kommt man dann mit http://192.168.4.1/config
 
 ---
 
@@ -81,6 +82,5 @@ Folgende Messwerte werden regelmäßig über MQTT bereitgestellt:
 
 ## 📌 Hinweise
 
-- Eine spätere Version mit Webinterface zur Konfiguration ist geplant.
 - In der Node-RED-Flow zur Anbindung an Solaranzeige (flows.json) wird vom "AUS Wächter" ein Modus 10 gesetzt.
   Dieser existiert im Infini nicht und wird bei mir für den Zustand "AUS" (wenn für mehr als 10sek keine MQTT Werte mehr ankommen) verwendet.

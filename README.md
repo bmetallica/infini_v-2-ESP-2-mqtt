@@ -6,12 +6,11 @@ Die erfassten Werte werden an einen **MQTT-Server** übertragen und können ansc
 > ⚠️ Ein Node-RED-Flow (!BETA!) zur Weiterleitung in die InfluxDB der Solaranzeige ist unter NodeRed/flows.json zu finden.
 
 ---
-## 🚀 Updates
-
-**v1.4**
-+ Klartexte im Webinterface (Mode, Fehler und Warnungen)
-+ Timeings in der Config anpassbar
-~ Batterieentladestrom Faktor korrigiert
+## 🚀 Updates <br>
+<b></b>v1.4</b> <br>
+++ Klartexte im Webinterface (Mode, Fehler und Warnungen) <br>
+++ Timeings in der Config anpassbar <br>
+~~ Batterieentladestrom Faktor korrigiert <br>
 
 ---
 

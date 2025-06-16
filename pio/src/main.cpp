@@ -4,7 +4,7 @@
 #include <ESP8266WebServer.h>
 #include <EEPROM.h>
 
-// EEPROM-Konfiguration (umbenannt wegen Namenskonflikt)
+// EEPROM-Konfiguration
 struct AppConfig {
   char magic;
   char ssid[32];
@@ -15,10 +15,15 @@ struct AppConfig {
   uint32_t local_ip;
   uint32_t gateway;
   uint32_t subnet;
+  // Neue Variablen für Delays
+  uint32_t commandDelay;
+  uint32_t responseTimeout;
+  uint32_t fullCycleDelay;
+  uint32_t mqttPublishDelay; // NEU: Verzögerung vor jedem MQTT-Publishing im GS-Befehl
 };
 
-AppConfig appConfig; // Umbenannt von config
-ESP8266WebServer webServer(80); // Umbenannt von server
+AppConfig appConfig;
+ESP8266WebServer webServer(80);
 bool inAPMode = false;
 
 // WLAN Konfiguration
@@ -44,11 +49,8 @@ const char* befehle[] = {
 
 const int NUM_BEFEHLE = sizeof(befehle) / sizeof(befehle[0]);
 
-// Timer-Variablen
+// Timer-Variablen - diese werden nun aus appConfig gelesen
 unsigned long lastActionMillis = 0;
-const long commandDelayMillis = 50;
-const long responseTimeoutMillis = 750;
-const long fullCycleDelayMillis = 500;
 int currentCommandIndex = 0;
 
 // Zustandsmaschine
@@ -74,11 +76,11 @@ const char* valueNames[] = {
   "mppt1_temperatur", "mppt2_temperatur", "solarleistung1", "solarleistung2",
   "solarspannung1", "solarspannung2", "ladestatus1", "ladestatus2",
   "batteriestromrichtung", "wr_stromrichtung", "netzstromrichtung", "firmware",
-  "stunden", "minuten", "sekunden", "mode", "fehler", "warnungen"
+  "stunden", "minuten", "sekunden", "Modus", "Fehler_r", "Warnungen_r"
 };
 const int NUM_VALUES = sizeof(valueNames) / sizeof(valueNames[0]);
 
-// HTML-Seiten (identisch wie vorher)
+// HTML-Seiten
 const char dashboardHTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -237,8 +239,7 @@ const char dashboardHTML[] PROGMEM = R"rawliteral(
             </tr>
           </thead>
           <tbody>
-            <!-- Werte werden per JavaScript eingefügt -->
-          </tbody>
+            </tbody>
         </table>
       </div>
       
@@ -500,6 +501,24 @@ const char configHTML[] PROGMEM = R"rawliteral(
             <input type="text" id="subnet" name="subnet" value="%SUBNET%" pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}">
           </div>
         </div>
+
+        <h2>Timing Einstellungen (Millisekunden)</h2>
+        <div class="form-group">
+          <label for="command_delay">Befehlsverzögerung (zwischen Befehlen)</label>
+          <input type="number" id="command_delay" name="command_delay" value="%COMMAND_DELAY%" min="0" required>
+        </div>
+        <div class="form-group">
+          <label for="response_timeout">Antwort-Timeout</label>
+          <input type="number" id="response_timeout" name="response_timeout" value="%RESPONSE_TIMEOUT%" min="0" required>
+        </div>
+        <div class="form-group">
+          <label for="full_cycle_delay">Voller Zyklus Verzögerung (nach letztem Befehl)</label>
+          <input type="number" id="full_cycle_delay" name="full_cycle_delay" value="%FULL_CYCLE_DELAY%" min="0" required>
+        </div>
+        <div class="form-group">
+          <label for="mqtt_publish_delay">MQTT Veröffentlichungs-Verzögerung (pro Wert nach GS-Befehl)</label>
+          <input type="number" id="mqtt_publish_delay" name="mqtt_publish_delay" value="%MQTT_PUBLISH_DELAY%" min="0" required>
+        </div>
         
         <div class="action-buttons">
           <button type="submit" class="btn btn-save">Speichern & Neustarten</button>
@@ -569,7 +588,7 @@ uint16_t crc16_xmodem(const uint8_t *data, uint16_t length) {
 void setup() {
   Serial.begin(115200);
   inverterSerial.begin(2400);
-  EEPROM.begin(512);
+  EEPROM.begin(512); // Stellen Sie sicher, dass die Größe für alle Daten ausreicht
   
   loadConfig();
   
@@ -600,7 +619,7 @@ void loop() {
 
   switch (currentState) {
     case STATE_IDLE_START_CYCLE:
-      if (currentMillis - lastActionMillis >= fullCycleDelayMillis || currentCommandIndex == 0) {
+      if (currentMillis - lastActionMillis >= appConfig.fullCycleDelay || currentCommandIndex == 0) {
         currentCommandIndex = 0;
         currentState = STATE_SEND_COMMAND;
         lastActionMillis = currentMillis;
@@ -634,9 +653,9 @@ void loop() {
           currentState = STATE_PROCESS_DATA;
           lastActionMillis = currentMillis;
         }
-      } else if (currentMillis - responseStartTime > responseTimeoutMillis) {
-        currentResponseBuffer = "";
-        currentState = STATE_WAIT_BETWEEN_COMMANDS;
+      } else if (currentMillis - responseStartTime > appConfig.responseTimeout) {
+        currentResponseBuffer = ""; // Timeout, Buffer leeren
+        currentState = STATE_WAIT_BETWEEN_COMMANDS; // Zum nächsten Befehl übergehen
         lastActionMillis = currentMillis;
       }
       break;
@@ -646,7 +665,12 @@ void loop() {
         String payload = extractPayload(currentResponseBuffer);
         if (payload.length() > 0) {
           const char* currentCmd = befehle[currentCommandIndex];
-          if (String(currentCmd).endsWith("GS")) parseAndSendGS(payload);
+          if (String(currentCmd).endsWith("GS")) {
+            // Der delay(appConfig.mqttPublishDelay) wurde von hier
+            // in die parseAndSendGS() Funktion verschoben,
+            // um pro einzelnem publishValue() zu verzögern.
+            parseAndSendGS(payload);
+          }
           else if (String(currentCmd).endsWith("PI")) parseAndSendPI(payload);
           else if (String(currentCmd).endsWith("T")) parseAndSendT(payload);
           else if (String(currentCmd).endsWith("MOD")) parseAndSendMOD(payload);
@@ -658,7 +682,7 @@ void loop() {
       break;
 
     case STATE_WAIT_BETWEEN_COMMANDS:
-      if (currentMillis - lastActionMillis >= commandDelayMillis) {
+      if (currentMillis - lastActionMillis >= appConfig.commandDelay) {
           currentCommandIndex++;
           currentState = STATE_SEND_COMMAND;
           lastActionMillis = currentMillis;
@@ -666,7 +690,7 @@ void loop() {
       break;
 
     case STATE_WAIT_FOR_NEXT_CYCLE:
-      if (currentMillis - lastActionMillis >= fullCycleDelayMillis) {
+      if (currentMillis - lastActionMillis >= appConfig.fullCycleDelay) {
         currentState = STATE_IDLE_START_CYCLE;
       }
       break;
@@ -681,6 +705,12 @@ void loadConfig() {
     appConfig.magic = 0xAE;
     strcpy(appConfig.mqtt_server, "192.168.3.3");
     strcpy(appConfig.mqtt_topic, "infini");
+    // Standardwerte für neue Variablen
+    appConfig.commandDelay = 55;
+    appConfig.responseTimeout = 850;
+    appConfig.fullCycleDelay = 250;
+    appConfig.mqttPublishDelay = 100; // NEUER Standardwert
+    saveConfig(); // Speichern der initialen Konfiguration
   }
 }
 
@@ -759,6 +789,12 @@ void handleConfigPage() {
     html.replace("%GATEWAY%", "");
     html.replace("%SUBNET%", "");
   }
+
+  // Ersetzen der Delay-Variablen
+  html.replace("%COMMAND_DELAY%", String(appConfig.commandDelay));
+  html.replace("%RESPONSE_TIMEOUT%", String(appConfig.responseTimeout));
+  html.replace("%FULL_CYCLE_DELAY%", String(appConfig.fullCycleDelay));
+  html.replace("%MQTT_PUBLISH_DELAY%", String(appConfig.mqttPublishDelay)); // NEU
   
   webServer.send(200, "text/html", html);
 }
@@ -766,7 +802,7 @@ void handleConfigPage() {
 void handleValues() {
   String json = "{";
   json += "\"connected\":";
-  json += (currentResponseBuffer.length() > 0) ? "true" : "false";
+  json += (currentResponseBuffer.length() > 0) ? "true" : "false"; // Basierend auf dem Bufferinhalt
   json += ",";
   
   for (int i = 0; i < NUM_VALUES; i++) {
@@ -780,10 +816,14 @@ void handleValues() {
 }
 
 void handleSaveConfig() {
-  strncpy(appConfig.ssid, webServer.arg("ssid").c_str(), sizeof(appConfig.ssid));
-  strncpy(appConfig.password, webServer.arg("password").c_str(), sizeof(appConfig.password));
-  strncpy(appConfig.mqtt_server, webServer.arg("mqtt_server").c_str(), sizeof(appConfig.mqtt_server));
-  strncpy(appConfig.mqtt_topic, webServer.arg("mqtt_topic").c_str(), sizeof(appConfig.mqtt_topic));
+  strncpy(appConfig.ssid, webServer.arg("ssid").c_str(), sizeof(appConfig.ssid) - 1);
+  appConfig.ssid[sizeof(appConfig.ssid) - 1] = '\0';
+  strncpy(appConfig.password, webServer.arg("password").c_str(), sizeof(appConfig.password) - 1);
+  appConfig.password[sizeof(appConfig.password) - 1] = '\0';
+  strncpy(appConfig.mqtt_server, webServer.arg("mqtt_server").c_str(), sizeof(appConfig.mqtt_server) - 1);
+  appConfig.mqtt_server[sizeof(appConfig.mqtt_server) - 1] = '\0';
+  strncpy(appConfig.mqtt_topic, webServer.arg("mqtt_topic").c_str(), sizeof(appConfig.mqtt_topic) - 1);
+  appConfig.mqtt_topic[sizeof(appConfig.mqtt_topic) - 1] = '\0';
   
   appConfig.use_static_ip = webServer.hasArg("use_static_ip");
   
@@ -797,6 +837,12 @@ void handleSaveConfig() {
     appConfig.gateway = gw;
     appConfig.subnet = sn;
   }
+
+  // Speichern der Delay-Variablen
+  appConfig.commandDelay = webServer.arg("command_delay").toInt();
+  appConfig.responseTimeout = webServer.arg("response_timeout").toInt();
+  appConfig.fullCycleDelay = webServer.arg("full_cycle_delay").toInt();
+  appConfig.mqttPublishDelay = webServer.arg("mqtt_publish_delay").toInt(); // NEU
   
   saveConfig();
   webServer.send(200, "text/plain", "Konfiguration gespeichert. Starte neu...");
@@ -830,10 +876,24 @@ String extractPayload(const String& raw) {
     String lenStr = raw.substring(start + 2, start + 5);
     unsigned int len = lenStr.toInt();
     
-    if (len > 0 && (start + 5 + static_cast<int>(len) - 1) < static_cast<int>(raw.length())) {
-      return raw.substring(start + 5, start + 5 + len);
-    } else if (len > 0 && (start + 5 + static_cast<int>(len) -1) == static_cast<int>(raw.length()) -1 && raw.endsWith("\r")) {
-      return raw.substring(start + 5, start + 5 + len -1);
+    // Überprüfen, ob die extrahierte Länge gültig ist und der Puffer groß genug für Payload + CRC + CR ist.
+    // Gemäß "Infini-Solar V protocol 20170926.pdf" ist "Data length" die Länge inkl. CRC und Endzeichen, außer bei "^Tnnn".
+    // Also ist die empfangene 'len' die Länge der Payload + 2 (CRC) + 1 (CR).
+    // Wir wollen nur die reine Payload.
+    
+    // Die Rohdaten enden mit '\r'. Die angegebene Länge 'len' beinhaltet oft auch das CR und CRC.
+    // Normalerweise ist die Payload (len - 3) für P-Befehle (da len CRC und CR enthält).
+    // Wenn die Antwort *nicht* mit '\r' endet (z.B. bei einem verkürzten Timeout),
+    // müssen wir das berücksichtigen und nur das extrahieren, was da ist.
+
+    // Wenn die Rohdaten mit '\r' enden und die Länge stimmt (Payload + 2 CRC + 1 CR)
+    if (raw.endsWith("\r") && (start + 5 + len) == raw.length()) { // len ist die Gesamtlänge inkl. CRC und CR
+        return raw.substring(start + 5, start + 5 + len - 3); // Extrahiere Payload ohne CRC (2) und CR (1)
+    }
+    // Wenn die Rohdaten nicht mit '\r' enden oder die Länge nicht ganz stimmt (z.B. Timeout)
+    // Versuche, so viel wie möglich als Payload zu interpretieren, ohne CRC
+    else if ((start + 5 + len - 3) <= raw.length()) { // Payload (len - 3) sollte im Puffer sein
+         return raw.substring(start + 5, start + 5 + len - 3);
     }
   }
   return "";
@@ -871,26 +931,43 @@ void parseAndSendGS(String payload) {
   const char* fieldNames[] = {
     "netzspannung", "netzfrequenz", "ac_ausgangsspannung", "ac_ausgangsfrequenz",
     "ac_scheinleistung", "ac_wirkleistung", "ausgangslast", "batteriespannung",
-    "", "", 
+    "", "", // Leere Einträge für fehlende Felder in Ihrem ursprünglichen Code
     "batterieentladestrom", "batterieladestrom", "batteriekapazitaet", "temperatur_gehaeuse",
     "mppt1_temperatur", "mppt2_temperatur", "solarleistung1", "solarleistung2",
-    "solarspannung1", "solarspannung2", "",
+    "solarspannung1", "solarspannung2", "", // Leerer Eintrag
     "ladestatus1", "ladestatus2", "batteriestromrichtung", "wr_stromrichtung", "netzstromrichtung"
   };
   
-  const int relevantFields[] = {0,1,2,3,4,5,6,7,10,11,12,13,14,15,16,17,18,19,21,22,23,24,25};
-  const int numFields = sizeof(relevantFields) / sizeof(relevantFields[0]);
-  
-  for (int i = 0; i < numFields; i++) {
-    int idx = relevantFields[i];
-    if (strlen(fieldNames[idx]) > 0) {
+  // Die Indizes im 'felder' Array, die den 'fieldNames' entsprechen
+  // Beispiel: fieldNames[0] "netzspannung" kommt von felder[0]
+  // fieldNames[10] "batterieentladestrom" kommt von felder[8] (siehe RS232 communication Protocol for InfiniSolar 3K.pdf, QPIGS response)
+  const int fieldMapIndices[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25};
+
+  // Liste der Indizes aus `fieldNames` die tatsächlich Werte haben
+  const int publishIndices[] = {0,1,2,3,4,5,6,7,10,11,12,13,14,15,16,17,18,19,21,22,23,24,25};
+  const int numPublishFields = sizeof(publishIndices) / sizeof(publishIndices[0]);
+
+  for (int i = 0; i < numPublishFields; i++) {
+    int fieldNameIdx = publishIndices[i]; // Index im `fieldNames` array
+    int felderIdx = fieldMapIndices[fieldNameIdx]; // Entsprechender Index im `felder` array
+
+    if (strlen(fieldNames[fieldNameIdx]) > 0) { // Nur wenn ein Name definiert ist
       String value;
-      if (idx == 0 || idx == 1 || idx == 2 || idx == 3 || idx == 7 || idx == 10 || idx == 18 || idx == 19) {
-        value = String(felder[idx].toFloat() / 10.0, 1);
+      // Spezielle Skalierungen oder Formatierungen
+      if (fieldNameIdx == 0 || fieldNameIdx == 1 || fieldNameIdx == 2 || fieldNameIdx == 3 || fieldNameIdx == 7 || 
+          fieldNameIdx == 18 || fieldNameIdx == 19) { // AC In/Out, Batt-Spannung, Solar-Spannung
+        value = String(felder[felderIdx].toFloat() / 10.0, 1);
+      } else if (fieldNameIdx == 8 || fieldNameIdx == 9) { // Entlade-/Ladestrom
+        value = String(felder[felderIdx].toFloat() * 10.0, 1);
       } else {
-        value = felder[idx];
+        value = felder[felderIdx];
       }
-      publishValue(fieldNames[idx], value);
+      
+      // NEU: Delay vor JEDEM publishValue() Aufruf innerhalb von parseAndSendGS()
+      if (appConfig.mqttPublishDelay > 0) {
+        delay(appConfig.mqttPublishDelay);
+      }
+      publishValue(fieldNames[fieldNameIdx], value);
     }
   }
 }
@@ -926,9 +1003,19 @@ void parseAndSendMOD(String payload) {
   String clean = "";
   for (unsigned int i = 0; i < payload.length(); i++) {
     char c = payload[i];
-    if (isPrintable(c)) clean += c;
+    if (isdigit(c)) clean += c;   // Nur Ziffern übernehmen
   }
   publishValue("mode", clean);
+// Bestimme den lesbaren Modus-String
+  String Modus;
+  if (clean == "00") Modus = "Power On Mode";
+  else if (clean == "01") Modus = "Standby Mode";
+  else if (clean == "02") Modus = "Line Mode";
+  else if (clean == "03") Modus = "Battery Mode";
+  else if (clean == "04") Modus = "Fault Mode";
+  else if (clean == "05") Modus = "Hybrid Mode";
+  else Modus = "Unbekannter Modus"; // Für unbekannte Codes
+ publishValue("Modus", Modus);
 }
 
 void parseAndSendFWS(String payload) {
@@ -936,7 +1023,7 @@ void parseAndSendFWS(String payload) {
     payload = payload.substring(1, payload.length() - 1);
   }
 
-  int kpos = payload.indexOf("k:");
+  int kpos = payload.indexOf("k:"); // "k:" ist ein Terminator, alles danach ist irrelevant
   if (kpos != -1) {
     payload = payload.substring(0, kpos);
   }
@@ -950,26 +1037,103 @@ void parseAndSendFWS(String payload) {
       if (index >= 20) break;
     }
   }
-  if (index < 20) teile[index++] = payload.substring(last);
+  if (index < 20) teile[index++] = payload.substring(last); // Letztes Segment hinzufügen
 
   String fehler = (index > 0) ? teile[0] : "N/A";
   publishValue("fehler", fehler);
 
+  String Fehler_r;
+  if (fehler == "00") {
+    Fehler_r = "Kein Fehler";
+  } else {
+    String description;
+    if (fehler == "01") description = "Fan locked";
+    else if (fehler == "02") description = "Over temperature";
+    else if (fehler == "03") description = "Battery voltage is too high";
+    else if (fehler == "04") description = "Battery voltage is too low";
+    else if (fehler == "05") description = "Output short circuited";
+    else if (fehler == "06") description = "Output voltage abnormal";
+    else if (fehler == "07") description = "Over load time out";
+    else if (fehler == "08") description = "Bus voltage is too high";
+    else if (fehler == "09") description = "Bus soft start failed";
+    else if (fehler == "10") description = "PV current over";
+    else if (fehler == "11") description = "PV voltage over";
+    else if (fehler == "12") description = "Charge current over";
+    else if (fehler == "51") description = "Over current or surge";
+    else if (fehler == "52") description = "Bus voltage is too low";
+    else if (fehler == "53") description = "Inverter soft start failed";
+    else if (fehler == "55") description = "Over DC offset in AC output";
+    else if (fehler == "56") description = "Battery disconnected";
+    else if (fehler == "57") description = "Current sensor failed";
+    else if (fehler == "58") description = "Output voltage is too low";
+    else description = "Unbekannt";
+
+    Fehler_r = description + " (Code: " + fehler + ")";
+  }
+  publishValue("Fehler_r", Fehler_r); // Lesbarer Fehler für Dashboard
+
   int warnIndizes[15];
   int warnCount = 0;
-  for (int i = 1; i < index && i <= 15; i++) {
-    if (teile[i].toInt() == 1) {
-      warnIndizes[warnCount++] = i;
+  for (int i = 1; i < index && i <= 15; i++) { // Warnungen beginnen ab Index 1
+    if (teile[i].toInt() == 1) { // Wenn die Warnung aktiv ist (Wert 1)
+      warnIndizes[warnCount++] = i; // Den Index der aktiven Warnung speichern
     }
   }
 
-  String warnung = "0";
-  if (warnCount == 1) {
-    warnung = String(warnIndizes[0]);
-  } else if (warnCount > 1) {
+  String warnung = "0"; // Standardmäßig keine Warnung
+  if (warnCount > 0) {
+    // Wenn mehrere Warnungen aktiv sind, wählen wir eine zufällig aus,
+    // um sie im 'warnungen' Topic zu veröffentlichen.
+    // Das Dashboard zeigt dann die lesbare Form von 'Warnungen_r' an.
     int randIndex = random(warnCount);
     warnung = String(warnIndizes[randIndex]);
   }
-
   publishValue("warnungen", warnung);
+
+  String Warnungen_r; // Deklariert einen String zum Speichern der finalen, formatierten Warnmeldung
+  String wdescription; // Deklariert einen String zum Speichern der Textbeschreibung der Warnung
+
+  // Überprüft den Wert der Variablen 'warnung' und weist die entsprechende Beschreibung zu
+  if (warnung == "0") { // Beachten Sie, dass warnung ein String ist
+      wdescription = "Keine Warnung"; 
+  } else if (warnung == "1") {
+      wdescription = "Battery voltage low";
+  } else if (warnung == "2") {
+      wdescription = "Battery voltage high";
+  } else if (warnung == "3") {
+      wdescription = "Battery voltage detection error";
+  } else if (warnung == "4") {
+      wdescription = "High temperature";
+  } else if (warnung == "5") {
+      wdescription = "Over load";
+  } else if (warnung == "6") {
+      wdescription = "Over charger current";
+  } else if (warnung == "7") {
+      wdescription = "Bus voltage high";
+  } else if (warnung == "8") {
+      wdescription = "Bus voltage low";
+  } else if (warnung == "9") {
+      wdescription = "PV voltage high";
+  } else if (warnung == "10") {
+      wdescription = "PV voltage low";
+  } else if (warnung == "11") {
+      wdescription = "Reserved 11";
+  } else if (warnung == "12") {
+      wdescription = "Reserved 12";
+  } else if (warnung == "13") {
+      wdescription = "Reserved 13";
+  } else if (warnung == "14") {
+      wdescription = "Reserved 14";
+  } else if (warnung == "15") {
+      wdescription = "Reserved 15";
+  } else {
+      // Falls der Warncode nicht in der Liste ist, wird eine generische Nachricht mit dem Code erstellt
+      wdescription = "Unbekannte Warnung " + String(warnung);
+  }
+
+  // Erstellt die endgültige Warnmeldung, indem die Beschreibung und der Code kombiniert werden
+  Warnungen_r = wdescription + " (Code: " + String(warnung) + ")";
+
+  // Veröffentlicht die formatierte Warnmeldung
+  publishValue("Warnungen_r", Warnungen_r);
 }

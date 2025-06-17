@@ -859,13 +859,22 @@ void handleRestart() {
 void reconnectMQTT() {
   while (!client.connected()) {
     Serial.print("Verbinde MQTT...");
-    if (client.connect("InfiniClient")) {
+    
+    String clientId = "InfiniClient-" + String(ESP.getChipId()); 
+    
+    Serial.print(" als Client ID: ");
+    Serial.println(clientId);
+
+    // Versuche, mit der eindeutigen Client ID zu verbinden
+    if (client.connect(clientId.c_str())) {
       Serial.println("verbunden!");
     } else {
       Serial.print("Fehler: ");
-      Serial.print(client.state());
+      // Der client.state() gibt einen Code zurück (z.B. -2 für MQTT_CONNECT_BAD_CLIENT_ID)
+      // Das ist nützlich für die Fehleranalyse.
+      Serial.print(client.state()); 
       Serial.println(" - Neuer Versuch in 2s");
-      delay(2000);
+      delay(2000); // Eine kurze Pause vor dem nächsten Verbindungsversuch
     }
   }
 }

@@ -11,6 +11,7 @@ Die erfassten Werte werden an einen **MQTT-Server** übertragen und können ansc
 ++ Klartexte im Webinterface (Mode, Fehler und Warnungen) <br>
 ++ Timeings in der Config anpassbar <br>
 ~~ Batterieentladestrom Faktor korrigiert <br>
+~~ Eindeutige MQTT-ID <br>
 
 ---
 

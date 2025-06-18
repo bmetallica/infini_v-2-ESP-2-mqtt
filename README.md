@@ -38,7 +38,7 @@ Die erfassten Werte werden an einen **MQTT-Server** übertragen und können ansc
 
 ## ⚙️ Konfiguration
 
-- Eine zum flashen bereite firmware für den ESP-D1_mini findet Ihr unter **bin_D1mini/infini_v-2-ESP-2-mqtt_V1.1.bin**
+- Eine zum flashen bereite firmware für den ESP-D1_mini findet Ihr unter **bin_D1mini/infini_v-2-ESP-2-mqtt_V1.4.bin**
 - Nach dem flashen öffnet der ESP ein Wlan **"InfiniConfig"** damit verbinden, zur Konfiguration kommt man dann mit **http://192.168.4.1/config**
 
 ---

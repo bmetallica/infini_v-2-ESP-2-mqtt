@@ -11,6 +11,8 @@ struct AppConfig {
   char password[32];
   char mqtt_server[32];
   char mqtt_topic[32];
+  char mqtt_username[32]; // NEU: MQTT Benutzername
+  char mqtt_password[32]; // NEU: MQTT Passwort
   bool use_static_ip;
   uint32_t local_ip;
   uint32_t gateway;
@@ -19,7 +21,8 @@ struct AppConfig {
   uint32_t commandDelay;
   uint32_t responseTimeout;
   uint32_t fullCycleDelay;
-  uint32_t mqttPublishDelay; // NEU: Verzögerung vor jedem MQTT-Publishing im GS-Befehl
+  uint32_t mqttPublishDelay;
+  bool mqtt_enabled; // NEU: MQTT Übertragung aktivieren/deaktivieren
 };
 
 AppConfig appConfig;
@@ -52,6 +55,11 @@ const int NUM_BEFEHLE = sizeof(befehle) / sizeof(befehle[0]);
 // Timer-Variablen - diese werden nun aus appConfig gelesen
 unsigned long lastActionMillis = 0;
 int currentCommandIndex = 0;
+
+bool inverterConnected = false; 
+unsigned long lastInverterDataReceivedMillis = 0; // NEU: Zeit des letzten erfolgreichen Datenempfangs
+const unsigned long INVERTER_TIMEOUT_THRESHOLD = 5000; // NEU: Schwellenwert für Inverter-Timeout (z.B. 5 Sekunden)
+
 
 // Zustandsmaschine
 enum AppState {
@@ -250,7 +258,7 @@ const char dashboardHTML[] PROGMEM = R"rawliteral(
   </div>
   
   <footer>
-    <p>InfiniSolar Monitoring System &copy; 2025 by bmetallica</p>
+    <p>InfiniSolar Monitoring System V1.5 &copy; 2025 by bmetallica</p>
   </footer>
 
   <script>
@@ -470,20 +478,12 @@ const char configHTML[] PROGMEM = R"rawliteral(
           <input type="password" id="password" name="password" value="%PASSWORD%">
         </div>
         
-        <div class="form-group">
-          <label for="mqtt_server">MQTT Server</label>
-          <input type="text" id="mqtt_server" name="mqtt_server" value="%MQTT_SERVER%" required>
-        </div>
-        
-        <div class="form-group">
-          <label for="mqtt_topic">MQTT Topic</label>
-          <input type="text" id="mqtt_topic" name="mqtt_topic" value="%MQTT_TOPIC%" required>
-        </div>
-        
+  
         <div class="checkbox-group">
           <input type="checkbox" id="use_static_ip" name="use_static_ip" %STATIC_IP_CHECKED%>
           <label for="use_static_ip">Statische IP verwenden</label>
         </div>
+
         
         <div class="ip-group">
           <div class="form-group">
@@ -501,6 +501,33 @@ const char configHTML[] PROGMEM = R"rawliteral(
             <input type="text" id="subnet" name="subnet" value="%SUBNET%" pattern="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}">
           </div>
         </div>
+
+         <h2>MQTT Einstellungen</h2>
+
+        <div class="form-group">
+          <label for="mqtt_server">MQTT Server</label>
+          <input type="text" id="mqtt_server" name="mqtt_server" value="%MQTT_SERVER%" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="mqtt_topic">MQTT Topic</label>
+          <input type="text" id="mqtt_topic" name="mqtt_topic" value="%MQTT_TOPIC%" required>
+        </div>
+
+        <div class="form-group">
+          <label for="mqtt_username">MQTT Benutzername (optional)</label>
+          <input type="text" id="mqtt_username" name="mqtt_username" value="%MQTT_USERNAME%">
+        </div>
+        
+        <div class="form-group">
+          <label for="mqtt_password">MQTT Passwort (optional)</label>
+          <input type="password" id="mqtt_password" name="mqtt_password" value="%MQTT_PASSWORD%">
+        </div>
+
+        <div class="checkbox-group">
+          <input type="checkbox" id="mqtt_enabled" name="mqtt_enabled" %MQTT_ENABLED_CHECKED%>
+          <label for="mqtt_enabled">MQTT Übertragung aktivieren</label>
+        </div>  
 
         <h2>Timing Einstellungen (Millisekunden)</h2>
         <div class="form-group">
@@ -529,7 +556,7 @@ const char configHTML[] PROGMEM = R"rawliteral(
   </div>
   
   <footer>
-    <p>InfiniSolar Monitoring System &copy; 2025 by bmetallica</p>
+    <p>InfiniSolar Monitoring System V1.5 &copy; 2025 by bmetallica</p>
   </footer>
   
   <script>
@@ -569,6 +596,7 @@ void parseAndSendPI(String payload);
 void parseAndSendT(String payload);
 void parseAndSendMOD(String payload);
 void parseAndSendFWS(String payload);
+String getUnitForValueName(const String& fieldName); // NEU
 
 // CRC16/XMODEM Berechnung
 uint16_t crc16_xmodem(const uint8_t *data, uint16_t length) {
@@ -610,12 +638,19 @@ void loop() {
     return;
   }
   
-  if (!client.connected() && WiFi.status() == WL_CONNECTED) {
-    reconnectMQTT();
+  // NEU: Nur MQTT versuchen, wenn aktiviert
+  if (appConfig.mqtt_enabled) {
+    if (!client.connected() && WiFi.status() == WL_CONNECTED) {
+      reconnectMQTT();
+    }
+    client.loop();
   }
-  client.loop();
 
   unsigned long currentMillis = millis();
+
+ if (currentMillis - lastInverterDataReceivedMillis > INVERTER_TIMEOUT_THRESHOLD) {
+    inverterConnected = false;
+  }
 
   switch (currentState) {
     case STATE_IDLE_START_CYCLE:
@@ -627,6 +662,7 @@ void loop() {
       break;
 
     case STATE_SEND_COMMAND:
+    Serial.print("Befehl gesendet: ");
       if (currentCommandIndex < NUM_BEFEHLE) {
         const char* cmd = befehle[currentCommandIndex];
         uint16_t crc = crc16_xmodem((uint8_t*)cmd, strlen(cmd));
@@ -649,12 +685,15 @@ void loop() {
       if (inverterSerial.available()) {
         char c = inverterSerial.read();
         currentResponseBuffer += c;
+        Serial.print("Antwort empfangen (Roh): ");
         if (c == '\r') {
           currentState = STATE_PROCESS_DATA;
           lastActionMillis = currentMillis;
         }
       } else if (currentMillis - responseStartTime > appConfig.responseTimeout) {
+        Serial.println("Antwort Timeout erreicht.");
         currentResponseBuffer = ""; // Timeout, Buffer leeren
+        inverterConnected = false;
         currentState = STATE_WAIT_BETWEEN_COMMANDS; // Zum nächsten Befehl übergehen
         lastActionMillis = currentMillis;
       }
@@ -664,6 +703,8 @@ void loop() {
       if (currentResponseBuffer.length() > 0) {
         String payload = extractPayload(currentResponseBuffer);
         if (payload.length() > 0) {
+          inverterConnected = true;
+          lastInverterDataReceivedMillis = currentMillis;
           const char* currentCmd = befehle[currentCommandIndex];
           if (String(currentCmd).endsWith("GS")) {
             // Der delay(appConfig.mqttPublishDelay) wurde von hier
@@ -675,8 +716,15 @@ void loop() {
           else if (String(currentCmd).endsWith("T")) parseAndSendT(payload);
           else if (String(currentCmd).endsWith("MOD")) parseAndSendMOD(payload);
           else if (String(currentCmd).endsWith("FWS")) parseAndSendFWS(payload);
+        }else {
+          Serial.println("Ungültige Payload erhalten oder leer nach Extraktion. Inverter als getrennt markiert.");
+          inverterConnected = false; // NEU: Ungültige Payload, Inverter als getrennt markieren
         }
+      } else {
+        Serial.println("Leere Antwort verarbeitet (keine Rohdaten). Inverter als getrennt markiert.");
+        inverterConnected = false; // NEU: Leere Antwort, Inverter als getrennt markieren
       }
+      
       currentState = STATE_WAIT_BETWEEN_COMMANDS;
       lastActionMillis = currentMillis;
       break;
@@ -701,15 +749,20 @@ void loadConfig() {
   EEPROM.get(0, appConfig);
   
   if (appConfig.magic != 0xAE) {
+    // Erste Initialisierung oder falls EEPROM korrupt ist
     memset(&appConfig, 0, sizeof(appConfig));
     appConfig.magic = 0xAE;
     strcpy(appConfig.mqtt_server, "192.168.3.3");
     strcpy(appConfig.mqtt_topic, "infini");
-    // Standardwerte für neue Variablen
+    // Standardwerte für neue MQTT-Login-Variablen
+    strcpy(appConfig.mqtt_username, "");  
+    strcpy(appConfig.mqtt_password, "");  
+    // Standardwerte für neue Delay-Variablen
     appConfig.commandDelay = 55;
     appConfig.responseTimeout = 850;
     appConfig.fullCycleDelay = 250;
-    appConfig.mqttPublishDelay = 100; // NEUER Standardwert
+    appConfig.mqttPublishDelay = 100;
+    appConfig.mqtt_enabled = false; // NEU: MQTT standardmäßig deaktiviert
     saveConfig(); // Speichern der initialen Konfiguration
   }
 }
@@ -778,7 +831,10 @@ void handleConfigPage() {
   html.replace("%PASSWORD%", appConfig.password);
   html.replace("%MQTT_SERVER%", appConfig.mqtt_server);
   html.replace("%MQTT_TOPIC%", appConfig.mqtt_topic);
+  html.replace("%MQTT_USERNAME%", appConfig.mqtt_username); // NEU
+  html.replace("%MQTT_PASSWORD%", appConfig.mqtt_password); // NEU
   html.replace("%STATIC_IP_CHECKED%", appConfig.use_static_ip ? "checked" : "");
+  html.replace("%MQTT_ENABLED_CHECKED%", appConfig.mqtt_enabled ? "checked" : ""); // NEU
   
   if (appConfig.use_static_ip) {
     html.replace("%IP%", IPAddress(appConfig.local_ip).toString());
@@ -794,7 +850,7 @@ void handleConfigPage() {
   html.replace("%COMMAND_DELAY%", String(appConfig.commandDelay));
   html.replace("%RESPONSE_TIMEOUT%", String(appConfig.responseTimeout));
   html.replace("%FULL_CYCLE_DELAY%", String(appConfig.fullCycleDelay));
-  html.replace("%MQTT_PUBLISH_DELAY%", String(appConfig.mqttPublishDelay)); // NEU
+  html.replace("%MQTT_PUBLISH_DELAY%", String(appConfig.mqttPublishDelay));  
   
   webServer.send(200, "text/html", html);
 }
@@ -802,12 +858,16 @@ void handleConfigPage() {
 void handleValues() {
   String json = "{";
   json += "\"connected\":";
-  json += (currentResponseBuffer.length() > 0) ? "true" : "false"; // Basierend auf dem Bufferinhalt
+  json += (inverterConnected ? "true" : "false"); // GEÄNDERT: Zeigt den Inverter-Verbindungsstatus an
   json += ",";
   
   for (int i = 0; i < NUM_VALUES; i++) {
-    json += "\"" + String(valueNames[i]) + "\":";
-    json += "\"" + currentValues[i] + "\"";
+    String name = String(valueNames[i]);
+    String value = currentValues[i];
+    String unit = getUnitForValueName(name); // Einheit abrufen
+
+    json += "\"" + name + "\":";
+    json += "\"" + (value.length() > 0 ? value + unit : "N/A") + "\""; // Wert + Einheit oder N/A
     if (i < NUM_VALUES - 1) json += ",";
   }
   
@@ -825,7 +885,13 @@ void handleSaveConfig() {
   strncpy(appConfig.mqtt_topic, webServer.arg("mqtt_topic").c_str(), sizeof(appConfig.mqtt_topic) - 1);
   appConfig.mqtt_topic[sizeof(appConfig.mqtt_topic) - 1] = '\0';
   
+  strncpy(appConfig.mqtt_username, webServer.arg("mqtt_username").c_str(), sizeof(appConfig.mqtt_username) - 1); // NEU
+  appConfig.mqtt_username[sizeof(appConfig.mqtt_username) - 1] = '\0'; // NEU
+  strncpy(appConfig.mqtt_password, webServer.arg("mqtt_password").c_str(), sizeof(appConfig.mqtt_password) - 1); // NEU
+  appConfig.mqtt_password[sizeof(appConfig.mqtt_password) - 1] = '\0'; // NEU
+  
   appConfig.use_static_ip = webServer.hasArg("use_static_ip");
+  appConfig.mqtt_enabled = webServer.hasArg("mqtt_enabled"); // NEU
   
   if (appConfig.use_static_ip) {
     IPAddress ip, gw, sn;
@@ -842,7 +908,7 @@ void handleSaveConfig() {
   appConfig.commandDelay = webServer.arg("command_delay").toInt();
   appConfig.responseTimeout = webServer.arg("response_timeout").toInt();
   appConfig.fullCycleDelay = webServer.arg("full_cycle_delay").toInt();
-  appConfig.mqttPublishDelay = webServer.arg("mqtt_publish_delay").toInt(); // NEU
+  appConfig.mqttPublishDelay = webServer.arg("mqtt_publish_delay").toInt();  
   
   saveConfig();
   webServer.send(200, "text/plain", "Konfiguration gespeichert. Starte neu...");
@@ -857,24 +923,36 @@ void handleRestart() {
 }
 
 void reconnectMQTT() {
+  // NEU: Nur verbinden, wenn MQTT aktiviert ist
+  if (!appConfig.mqtt_enabled) return;
+
   while (!client.connected()) {
     Serial.print("Verbinde MQTT...");
     
-    String clientId = "InfiniClient-" + String(ESP.getChipId()); 
+    String clientId = "InfiniClient-" + String(ESP.getChipId());  
     
     Serial.print(" als Client ID: ");
     Serial.println(clientId);
 
-    // Versuche, mit der eindeutigen Client ID zu verbinden
-    if (client.connect(clientId.c_str())) {
-      Serial.println("verbunden!");
-    } else {
-      Serial.print("Fehler: ");
-      // Der client.state() gibt einen Code zurück (z.B. -2 für MQTT_CONNECT_BAD_CLIENT_ID)
-      // Das ist nützlich für die Fehleranalyse.
-      Serial.print(client.state()); 
-      Serial.println(" - Neuer Versuch in 2s");
-      delay(2000); // Eine kurze Pause vor dem nächsten Verbindungsversuch
+    // Verbinden mit oder ohne Benutzername/Passwort
+    if (strlen(appConfig.mqtt_username) > 0) { // Wenn ein Benutzername konfiguriert ist
+      if (client.connect(clientId.c_str(), appConfig.mqtt_username, appConfig.mqtt_password)) {
+        Serial.println("verbunden (mit Login)!");
+      } else {
+        Serial.print("Fehler (mit Login): ");
+        Serial.print(client.state());  
+        Serial.println(" - Neuer Versuch in 2s");
+        delay(2000);  
+      }
+    } else { // Ohne Benutzername/Passwort
+      if (client.connect(clientId.c_str())) {
+        Serial.println("verbunden (ohne Login)!");
+      } else {
+        Serial.print("Fehler (ohne Login): ");
+        Serial.print(client.state());  
+        Serial.println(" - Neuer Versuch in 2s");
+        delay(2000);  
+      }
     }
   }
 }
@@ -902,23 +980,52 @@ String extractPayload(const String& raw) {
     // Wenn die Rohdaten nicht mit '\r' enden oder die Länge nicht ganz stimmt (z.B. Timeout)
     // Versuche, so viel wie möglich als Payload zu interpretieren, ohne CRC
     else if ((start + 5 + len - 3) <= raw.length()) { // Payload (len - 3) sollte im Puffer sein
-         return raw.substring(start + 5, start + 5 + len - 3);
+          return raw.substring(start + 5, start + 5 + len - 3);
     }
   }
   return "";
 }
 
 void publishValue(const String& field, const String& value) {
-  String topic = String(appConfig.mqtt_topic) + "/" + field;
-  client.publish(topic.c_str(), value.c_str());
-  
+  // NEU: Nur veröffentlichen, wenn MQTT aktiviert ist
   for (int i = 0; i < NUM_VALUES; i++) {
     if (field == valueNames[i]) {
       currentValues[i] = value;
       break;
     }
   }
+  
+  if (!appConfig.mqtt_enabled) return;
+
+  String topic = String(appConfig.mqtt_topic) + "/" + field;
+  client.publish(topic.c_str(), value.c_str());
+  
+
 }
+
+// NEU: Funktion zur Abfrage der Einheit basierend auf dem Feldnamen
+String getUnitForValueName(const String& fieldName) {
+  if (fieldName == "netzspannung" || fieldName == "ac_ausgangsspannung" || fieldName == "batteriespannung" || 
+      fieldName == "solarspannung1" || fieldName == "solarspannung2") {
+    return " V";
+  } else if (fieldName == "netzfrequenz" || fieldName == "ac_ausgangsfrequenz") {
+    return " Hz";
+  } else if (fieldName == "ac_scheinleistung" || fieldName == "ac_wirkleistung" ||
+             fieldName == "solarleistung1" || fieldName == "solarleistung2") {
+    return " W";
+  } else if (fieldName == "ausgangslast" || fieldName == "batteriekapazitaet") {
+    return " %";
+  } else if (fieldName == "batterieentladestrom" || fieldName == "batterieladestrom") {
+    return " A";
+  } else if (fieldName == "temperatur_gehaeuse" || fieldName == "mppt1_temperatur" || 
+             fieldName == "mppt2_temperatur") {
+    return " C°";
+  } else if (fieldName == "stunden" || fieldName == "minuten" || fieldName == "sekunden") {
+    return ""; // Zeitwerte haben keine explizite Einheit hier
+  }
+  return ""; // Keine Einheit bekannt oder nicht anwendbar
+}
+
 
 void parseAndSendGS(String payload) {
   if (payload.startsWith("(") && payload.endsWith(")")) {

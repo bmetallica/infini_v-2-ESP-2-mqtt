@@ -7,6 +7,10 @@ Die erfassten Werte werden an einen **MQTT-Server** übertragen und können ansc
 
 ---
 ## 🚀 Updates <br>
+<b></b>v1.5</b> <br>
+++ MQTT Authentifikation<br>
+++ Disable MQTT<br>
+++ Einheiten auf dem Dashboard<br><br>
 <b></b>v1.4</b> <br>
 ++ Klartexte im Webinterface (Mode, Fehler und Warnungen) <br>
 ++ Timeings in der Config anpassbar <br>

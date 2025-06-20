@@ -96,3 +96,8 @@ Folgende Messwerte werden regelmäßig über MQTT bereitgestellt:
 
 - In der Node-RED-Flow zur Anbindung an Solaranzeige (flows.json) wird vom "AUS Wächter" ein Modus 10 gesetzt.
   Dieser existiert im Infini nicht und wird bei mir für den Zustand "AUS" (wenn für mehr als 10sek keine MQTT Werte mehr ankommen) verwendet.
+
+---
+
+## Dashboard
+<img src="dashboard.jpg" alt="Dashboard" width="50%" />

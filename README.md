@@ -7,6 +7,10 @@ Die erfassten Werte werden an einen **MQTT-Server** übertragen und können ansc
 
 ---
 ## 🚀 Updates <br>
+<b>3D Gehäuse</b> (zum Selbstdrucken)<br>
+Ein Gehäuse für den D1 mini und das MAX3232 zum 3D-drucken ist unter "3D-Print" zu finden.<br>
+<i>vielen Dank an FH für die Zeichnung</i><br>
+
 <b></b>v1.5</b> <br>
 ++ MQTT Authentifikation<br>
 ++ Disable MQTT<br>
